@@ -19,6 +19,7 @@ def test_zip_contents(sales_submission):
         script = zf.read("script.py").decode()
     assert b"\r\n" in bat and b"\n" not in bat.replace(b"\r\n", b"")  # CRLF only
     assert b"set /p" in bat and b"sales_summary.xlsx" in bat
+    assert b"if not defined INPUT" in bat  # empty input is caught before quote stripping
     assert "Double-click **run.bat**" in readme
     assert "Invoices = number of distinct invoice numbers" in readme
     assert "It needed 2 attempt(s)" in readme

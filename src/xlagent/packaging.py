@@ -27,13 +27,15 @@ echo  -------------------------------------------------------------
 echo  Drag the input file (or the folder with all input files) into
 echo  this window and press Enter.
 echo.
+set "INPUT="
 set /p "INPUT=Input: "
-set "INPUT=%INPUT:"=%"
-if "%INPUT%"=="" (
+if not defined INPUT (
   echo No input given.
   pause
   exit /b 1
 )
+rem Dragging a path into the window adds quotes; remove them.
+set "INPUT=%INPUT:"=%"
 if not exist ".venv\Scripts\python.exe" (
   echo First run: setting up Python packages, this takes a minute...
   python -m venv .venv || goto :nopython
