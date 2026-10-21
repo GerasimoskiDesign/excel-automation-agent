@@ -1,0 +1,209 @@
+{
+  "format": "xlagent-cassette/1",
+  "session_key": "c484dcd4f9aee44f",
+  "label": "sales_consolidation (non-interactive)",
+  "source": "hand-authored",
+  "model": "claude-opus-5-5",
+  "example": "sales_consolidation",
+  "mode": "noninteractive",
+  "interactions": [
+    {
+      "stage": "interview",
+      "request": {
+        "last_user_message": "<task description + file profile>"
+      },
+      "response": {
+        "id": "msg_replay_sales_01",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-opus-5-5",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "hand-authored-fixture"
+          },
+          {
+            "type": "text",
+            "text": "The description and the profiles cover almost everything. I made a few assumptions and listed them so they can be checked."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_replay_sales_01",
+            "name": "submit_spec",
+            "input": {
+              "spec": {
+                "title": "Monthly sales summary per shop",
+                "summary": "Combine the monthly sales exports of all shops into one workbook with invoices, units and revenue per shop and month, plus totals per shop and a grand total.",
+                "inputs": [
+                  {
+                    "name_pattern": "sales_<shop>_<YYYY-MM>.xlsx",
+                    "description": "One sales export per shop and month; shop name in the file name.",
+                    "sheet": "Sales",
+                    "key_columns": [
+                      "Date",
+                      "Invoice No",
+                      "Product",
+                      "Qty",
+                      "Unit Price",
+                      "Line Total"
+                    ]
+                  }
+                ],
+                "steps": [
+                  "Read every sales file and take the shop name from the file name.",
+                  "Map the Station headers (Sale Date, Invoice, Item, Quantity, Price, Amount) to the standard names.",
+                  "Drop empty rows and the TOTAL row.",
+                  "Parse text dates in day.month.year format.",
+                  "Derive Month (YYYY-MM) from the sale date.",
+                  "Aggregate invoices, units and revenue per shop and month, and per shop.",
+                  "Add an 'All shops' grand-total row to the shop totals."
+                ],
+                "output_format": {
+                  "file_type": "xlsx",
+                  "file_name": "sales_summary.xlsx",
+                  "sheets": [
+                    {
+                      "name": "Summary",
+                      "columns": [
+                        "Shop",
+                        "Month",
+                        "Invoices",
+                        "Units",
+                        "Revenue"
+                      ],
+                      "sort_by": [
+                        "Shop",
+                        "Month"
+                      ]
+                    },
+                    {
+                      "name": "Shop Totals",
+                      "columns": [
+                        "Shop",
+                        "Invoices",
+                        "Units",
+                        "Revenue"
+                      ],
+                      "sort_by": []
+                    }
+                  ]
+                },
+                "business_rules": [
+                  "Invoices = number of distinct invoice numbers, excluding refunds.",
+                  "Refunds are invoice numbers ending in -R<number>; they have negative quantities and reduce Units and Revenue.",
+                  "Revenue = sum of Line Total, rounded to 2 decimals.",
+                  "Month comes from the sale date, not from the file name.",
+                  "Shop names are title case (North, Harbour, Station)."
+                ],
+                "edge_cases": [
+                  "Harbour files end with a TOTAL row that must be ignored.",
+                  "North files contain completely empty rows.",
+                  "Station files use different column names and text dates.",
+                  "A shop with only refunds in a month gets 0 invoices."
+                ],
+                "schedule": {
+                  "frequency": "monthly",
+                  "notes": "After all shop files for the month arrive."
+                }
+              },
+              "assumptions": [
+                "Month is taken from the sale date, not from the file name.",
+                "Revenue uses the Line Total column (Qty x Unit Price), rounded to cents.",
+                "A refund is an invoice number ending in -R plus digits."
+              ]
+            }
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 4200,
+          "output_tokens": 667,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    },
+    {
+      "stage": "generate",
+      "request": {
+        "last_user_message": "<confirmed spec + profiles>"
+      },
+      "response": {
+        "id": "msg_replay_sales_02",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-opus-5-5",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "hand-authored-fixture"
+          },
+          {
+            "type": "text",
+            "text": "Here is the script. It maps each shop's headers to one vocabulary before aggregating."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_replay_sales_02",
+            "name": "write_script",
+            "input": {
+              "code": "import os\nimport re\n\nimport pandas as pd\n\n# The shops' tills export different header names; map them to one vocabulary.\nHEADER_ALIASES = {\n    \"date\": \"Date\",\n    \"sale date\": \"Date\",\n    \"invoice no\": \"Invoice No\",\n    \"invoice\": \"Invoice No\",\n    \"product\": \"Product\",\n    \"item\": \"Product\",\n    \"qty\": \"Qty\",\n    \"quantity\": \"Qty\",\n    \"unit price\": \"Unit Price\",\n    \"price\": \"Unit Price\",\n    \"line total\": \"Line Total\",\n    \"amount\": \"Line Total\",\n}\nREQUIRED = [\"Date\", \"Invoice No\", \"Product\", \"Qty\", \"Line Total\"]\nFILE_NAME = re.compile(r\"sales_(?P<shop>[A-Za-z]+)_(?P<month>\\d{4}-\\d{2})\")\nREFUND = re.compile(r\"-R\\d+$\")\n\n\ndef _read(path):\n    if path.suffix.lower() == \".csv\":\n        return pd.read_csv(path)\n    return pd.read_excel(path)\n\n\ndef _load_shop_file(path):\n    file_stem = os.path.splitext(os.path.basename(str(path)))[0]\n    match = FILE_NAME.search(file_stem)\n    if match is None:\n        raise ValueError(f\"{path.name}: expected a file name like sales_<shop>_<YYYY-MM>.xlsx\")\n    frame = _read(path)\n    frame = frame.rename(\n        columns=lambda c: HEADER_ALIASES.get(str(c).strip().lower(), str(c).strip())\n    )\n    missing = [c for c in REQUIRED if c not in frame.columns]\n    if missing:\n        raise ValueError(f\"{path.name}: missing columns {missing}\")\n\n    # Blank rows (North) and the TOTAL row (Harbour) have no invoice number.\n    frame = frame.dropna(how=\"all\")\n    frame = frame[frame[\"Invoice No\"].notna()]\n    frame = frame[frame[\"Product\"].astype(str).str.strip().str.upper() != \"TOTAL\"].copy()\n\n    # Station exports dates as text in day.month.year format.\n    if not pd.api.types.is_datetime64_any_dtype(frame[\"Date\"]):\n        frame[\"Date\"] = pd.to_datetime(frame[\"Date\"].astype(str).str.strip(), format=\"%d.%m.%Y\")\n\n    frame[\"Qty\"] = pd.to_numeric(frame[\"Qty\"])\n    frame[\"Line Total\"] = pd.to_numeric(frame[\"Line Total\"])\n    frame[\"Invoice No\"] = frame[\"Invoice No\"].astype(str).str.strip()\n    frame[\"Shop\"] = match[\"shop\"].title()\n    frame[\"Month\"] = frame[\"Date\"].dt.strftime(\"%Y-%m\")\n    # Refunds reduce units and revenue but are not counted as invoices.\n    frame[\"Is Refund\"] = frame[\"Invoice No\"].str.contains(REFUND)\n    return frame[[\"Shop\", \"Month\", \"Invoice No\", \"Qty\", \"Line Total\", \"Is Refund\"]]\n\n\ndef _aggregate(lines, keys):\n    invoices = lines[~lines[\"Is Refund\"]].groupby(keys)[\"Invoice No\"].nunique()\n    grouped = lines.groupby(keys).agg(Units=(\"Qty\", \"sum\"), Revenue=(\"Line Total\", \"sum\"))\n    grouped.insert(0, \"Invoices\", invoices)\n    grouped[\"Invoices\"] = grouped[\"Invoices\"].fillna(0).astype(int)\n    grouped[\"Units\"] = grouped[\"Units\"].astype(int)\n    grouped[\"Revenue\"] = grouped[\"Revenue\"].round(2)\n    return grouped.reset_index()\n\n\ndef run(input_paths, output_path):\n    lines = pd.concat([_load_shop_file(p) for p in input_paths], ignore_index=True)\n\n    summary = _aggregate(lines, [\"Shop\", \"Month\"]).sort_values([\"Shop\", \"Month\"])\n    totals = _aggregate(lines, [\"Shop\"]).sort_values(\"Shop\")\n    grand_total = pd.DataFrame(\n        [\n            {\n                \"Shop\": \"All shops\",\n                \"Invoices\": int(totals[\"Invoices\"].sum()),\n                \"Units\": int(totals[\"Units\"].sum()),\n                \"Revenue\": round(float(lines[\"Line Total\"].sum()), 2),\n            }\n        ]\n    )\n    totals = pd.concat([totals, grand_total], ignore_index=True)\n\n    with pd.ExcelWriter(output_path, engine=\"openpyxl\") as writer:\n        summary.to_excel(writer, sheet_name=\"Summary\", index=False)\n        totals.to_excel(writer, sheet_name=\"Shop Totals\", index=False)\n",
+              "notes": "Normalise headers per shop, drop blank and TOTAL rows, then aggregate."
+            }
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 5200,
+          "output_tokens": 1097,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    },
+    {
+      "stage": "repair",
+      "request": {
+        "last_user_message": "<safety check: module 'os' not allowed>"
+      },
+      "response": {
+        "id": "msg_replay_sales_03",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-opus-5-5",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "hand-authored-fixture"
+          },
+          {
+            "type": "text",
+            "text": "Understood - `os` is not on the allowlist. The paths are already pathlib objects, so I use `path.stem` instead."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_replay_sales_03",
+            "name": "write_script",
+            "input": {
+              "code": "import re\n\nimport pandas as pd\n\n# The shops' tills export different header names; map them to one vocabulary.\nHEADER_ALIASES = {\n    \"date\": \"Date\",\n    \"sale date\": \"Date\",\n    \"invoice no\": \"Invoice No\",\n    \"invoice\": \"Invoice No\",\n    \"product\": \"Product\",\n    \"item\": \"Product\",\n    \"qty\": \"Qty\",\n    \"quantity\": \"Qty\",\n    \"unit price\": \"Unit Price\",\n    \"price\": \"Unit Price\",\n    \"line total\": \"Line Total\",\n    \"amount\": \"Line Total\",\n}\nREQUIRED = [\"Date\", \"Invoice No\", \"Product\", \"Qty\", \"Line Total\"]\nFILE_NAME = re.compile(r\"sales_(?P<shop>[A-Za-z]+)_(?P<month>\\d{4}-\\d{2})\")\nREFUND = re.compile(r\"-R\\d+$\")\n\n\ndef _read(path):\n    if path.suffix.lower() == \".csv\":\n        return pd.read_csv(path)\n    return pd.read_excel(path)\n\n\ndef _load_shop_file(path):\n    match = FILE_NAME.search(path.stem)\n    if match is None:\n        raise ValueError(f\"{path.name}: expected a file name like sales_<shop>_<YYYY-MM>.xlsx\")\n    frame = _read(path)\n    frame = frame.rename(\n        columns=lambda c: HEADER_ALIASES.get(str(c).strip().lower(), str(c).strip())\n    )\n    missing = [c for c in REQUIRED if c not in frame.columns]\n    if missing:\n        raise ValueError(f\"{path.name}: missing columns {missing}\")\n\n    # Blank rows (North) and the TOTAL row (Harbour) have no invoice number.\n    frame = frame.dropna(how=\"all\")\n    frame = frame[frame[\"Invoice No\"].notna()]\n    frame = frame[frame[\"Product\"].astype(str).str.strip().str.upper() != \"TOTAL\"].copy()\n\n    # Station exports dates as text in day.month.year format.\n    if not pd.api.types.is_datetime64_any_dtype(frame[\"Date\"]):\n        frame[\"Date\"] = pd.to_datetime(frame[\"Date\"].astype(str).str.strip(), format=\"%d.%m.%Y\")\n\n    frame[\"Qty\"] = pd.to_numeric(frame[\"Qty\"])\n    frame[\"Line Total\"] = pd.to_numeric(frame[\"Line Total\"])\n    frame[\"Invoice No\"] = frame[\"Invoice No\"].astype(str).str.strip()\n    frame[\"Shop\"] = match[\"shop\"].title()\n    frame[\"Month\"] = frame[\"Date\"].dt.strftime(\"%Y-%m\")\n    # Refunds reduce units and revenue but are not counted as invoices.\n    frame[\"Is Refund\"] = frame[\"Invoice No\"].str.contains(REFUND)\n    return frame[[\"Shop\", \"Month\", \"Invoice No\", \"Qty\", \"Line Total\", \"Is Refund\"]]\n\n\ndef _aggregate(lines, keys):\n    invoices = lines[~lines[\"Is Refund\"]].groupby(keys)[\"Invoice No\"].nunique()\n    grouped = lines.groupby(keys).agg(Units=(\"Qty\", \"sum\"), Revenue=(\"Line Total\", \"sum\"))\n    grouped.insert(0, \"Invoices\", invoices)\n    grouped[\"Invoices\"] = grouped[\"Invoices\"].fillna(0).astype(int)\n    grouped[\"Units\"] = grouped[\"Units\"].astype(int)\n    grouped[\"Revenue\"] = grouped[\"Revenue\"].round(2)\n    return grouped.reset_index()\n\n\ndef run(input_paths, output_path):\n    lines = pd.concat([_load_shop_file(p) for p in input_paths], ignore_index=True)\n\n    summary = _aggregate(lines, [\"Shop\", \"Month\"]).sort_values([\"Shop\", \"Month\"])\n    totals = _aggregate(lines, [\"Shop\"]).sort_values(\"Shop\")\n    grand_total = pd.DataFrame(\n        [\n            {\n                \"Shop\": \"All shops\",\n                \"Invoices\": int(totals[\"Invoices\"].sum()),\n                \"Units\": int(totals[\"Units\"].sum()),\n                \"Revenue\": round(float(lines[\"Line Total\"].sum()), 2),\n            }\n        ]\n    )\n    totals = pd.concat([totals, grand_total], ignore_index=True)\n\n    with pd.ExcelWriter(output_path, engine=\"openpyxl\") as writer:\n        summary.to_excel(writer, sheet_name=\"Summary\", index=False)\n        totals.to_excel(writer, sheet_name=\"Shop Totals\", index=False)\n",
+              "notes": "Same logic; file names now come from pathlib's Path.stem instead of os.path."
+            }
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 6900,
+          "output_tokens": 1075,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    }
+  ]
+}

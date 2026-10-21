@@ -1,0 +1,228 @@
+{
+  "format": "xlagent-cassette/1",
+  "session_key": "ae43a011555d2682",
+  "label": "attendance_exceptions (non-interactive)",
+  "source": "hand-authored",
+  "model": "claude-opus-5-5",
+  "example": "attendance_exceptions",
+  "mode": "noninteractive",
+  "interactions": [
+    {
+      "stage": "interview",
+      "request": {
+        "last_user_message": "<task description + file profile>"
+      },
+      "response": {
+        "id": "msg_replay_attn_01",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-opus-5-5",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "hand-authored-fixture"
+          },
+          {
+            "type": "text",
+            "text": "Clear task. Spec below; please check the three assumptions."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_replay_attn_01",
+            "name": "submit_spec",
+            "input": {
+              "spec": {
+                "title": "Monthly attendance exceptions",
+                "summary": "List missing clock-ins, employees late three or more times, and rows where the clock-out is before the clock-in, from the monthly time-clock export.",
+                "inputs": [
+                  {
+                    "name_pattern": "clock_events_<YYYY-MM>.csv",
+                    "description": "Time-clock export: one row per employee and day; '-' = missing punch.",
+                    "sheet": null,
+                    "key_columns": [
+                      "Employee ID",
+                      "Date",
+                      "Clock In",
+                      "Clock Out"
+                    ]
+                  },
+                  {
+                    "name_pattern": "roster.xlsx",
+                    "description": "Employees with name, team and shift start time.",
+                    "sheet": "Roster",
+                    "key_columns": [
+                      "Employee ID",
+                      "Name",
+                      "Shift Start"
+                    ]
+                  }
+                ],
+                "steps": [
+                  "Read the clock events and the roster and join them on Employee ID.",
+                  "Parse clock-in, clock-out and shift start times (HH:MM).",
+                  "Find rows with a clock-out but no clock-in.",
+                  "Find rows where the clock-out is earlier than the clock-in.",
+                  "Count late arrivals per employee, excluding those error rows.",
+                  "Write the three exception lists."
+                ],
+                "output_format": {
+                  "file_type": "xlsx",
+                  "file_name": "attendance_exceptions.xlsx",
+                  "sheets": [
+                    {
+                      "name": "Missing Clock-In",
+                      "columns": [
+                        "Employee ID",
+                        "Name",
+                        "Date"
+                      ],
+                      "sort_by": [
+                        "Employee ID",
+                        "Date"
+                      ]
+                    },
+                    {
+                      "name": "Repeated Late",
+                      "columns": [
+                        "Employee ID",
+                        "Name",
+                        "Late Days",
+                        "Late Dates"
+                      ],
+                      "sort_by": [
+                        "Employee ID"
+                      ]
+                    },
+                    {
+                      "name": "Out Before In",
+                      "columns": [
+                        "Employee ID",
+                        "Name",
+                        "Date",
+                        "Clock In",
+                        "Clock Out"
+                      ],
+                      "sort_by": [
+                        "Employee ID",
+                        "Date"
+                      ]
+                    }
+                  ]
+                },
+                "business_rules": [
+                  "Late = clock-in more than 5 minutes after the shift start.",
+                  "Repeated Late lists employees with 3 or more late days in the month.",
+                  "Late Dates is a comma-separated list of ISO dates in date order.",
+                  "Rows with clock-out before clock-in are data errors and are not counted as late."
+                ],
+                "edge_cases": [
+                  "'-' in Clock In or Clock Out means the punch is missing.",
+                  "Days without any row are absences and are ignored.",
+                  "A missing clock-in is not counted as late."
+                ],
+                "schedule": {
+                  "frequency": "monthly",
+                  "notes": "First working day of the next month."
+                }
+              },
+              "assumptions": [
+                "Shift Start in the roster applies to every working day of the month.",
+                "Exactly 5 minutes after shift start is still on time.",
+                "A row with a missing clock-out but a valid clock-in is not an exception."
+              ]
+            }
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 4200,
+          "output_tokens": 693,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    },
+    {
+      "stage": "generate",
+      "request": {
+        "last_user_message": "<confirmed spec + profiles>"
+      },
+      "response": {
+        "id": "msg_replay_attn_02",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-opus-5-5",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "hand-authored-fixture"
+          },
+          {
+            "type": "text",
+            "text": "Here is the attendance script."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_replay_attn_02",
+            "name": "write_script",
+            "input": {
+              "code": "import pandas as pd\n\nGRACE_MINUTES = 5\nLATE_THRESHOLD = 3\n\n\ndef _find(input_paths, word):\n    for path in input_paths:\n        if word in path.name.lower():\n            return path\n    raise ValueError(f\"Could not find an input file with '{word}' in its name.\")\n\n\ndef _read(path):\n    if path.suffix.lower() == \".csv\":\n        return pd.read_csv(path, dtype=str)\n    return pd.read_excel(path, dtype=str)\n\n\ndef _minutes(series):\n    times = pd.to_datetime(series.astype(str).str.strip(), format=\"%H:%M\")\n    return times.dt.hour * 60 + times.dt.minute\n\n\ndef run(input_paths, output_path):\n    events = _read(_find(input_paths, \"clock\"))\n    roster = _read(_find(input_paths, \"roster\"))\n    events.columns = [c.strip() for c in events.columns]\n    roster.columns = [c.strip() for c in roster.columns]\n\n    events = events.merge(\n        roster[[\"Employee ID\", \"Name\", \"Shift Start\"]], on=\"Employee ID\", how=\"left\"\n    )\n    events[\"in_min\"] = _minutes(events[\"Clock In\"])\n    events[\"out_min\"] = _minutes(events[\"Clock Out\"])\n    events[\"shift_min\"] = _minutes(events[\"Shift Start\"])\n\n    missing_in = events[events[\"in_min\"].isna() & events[\"out_min\"].notna()]\n    swapped = events[events[\"in_min\"].notna() & events[\"out_min\"].notna()]\n    swapped = swapped[swapped[\"out_min\"] < swapped[\"in_min\"]]\n\n    # Swapped rows are data errors and must not count as late arrivals.\n    valid = events[events[\"in_min\"].notna() & ~events.index.isin(swapped.index)]\n    late = valid[valid[\"in_min\"] > valid[\"shift_min\"] + GRACE_MINUTES]\n    late_summary = (\n        late.sort_values(\"Date\")\n        .groupby([\"Employee ID\", \"Name\"])\n        .agg(**{\"Late Days\": (\"Date\", \"count\"), \"Late Dates\": (\"Date\", \", \".join)})\n        .reset_index()\n    )\n    repeated = late_summary[late_summary[\"Late Days\"] >= LATE_THRESHOLD]\n\n    sheets = {\n        \"Missing Clock-In\": missing_in[[\"Employee ID\", \"Name\", \"Date\"]].sort_values(\n            [\"Employee ID\", \"Date\"]\n        ),\n        \"Repeated Late\": repeated.sort_values(\"Employee ID\"),\n        \"Out Before In\": swapped[\n            [\"Employee ID\", \"Name\", \"Date\", \"Clock In\", \"Clock Out\"]\n        ].sort_values([\"Employee ID\", \"Date\"]),\n    }\n    with pd.ExcelWriter(output_path, engine=\"openpyxl\") as writer:\n        for name, frame in sheets.items():\n            frame.to_excel(writer, sheet_name=name, index=False)\n",
+              "notes": "Times are converted to minutes after midnight for all comparisons."
+            }
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 4600,
+          "output_tokens": 751,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    },
+    {
+      "stage": "repair",
+      "request": {
+        "last_user_message": "<stderr: time data '-' doesn't match format>"
+      },
+      "response": {
+        "id": "msg_replay_attn_03",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-opus-5-5",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "hand-authored-fixture"
+          },
+          {
+            "type": "text",
+            "text": "The crash comes from the '-' placeholder for missing punches. I now parse with errors='coerce' so those become missing values, which is exactly what the missing clock-in rule needs."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_replay_attn_03",
+            "name": "write_script",
+            "input": {
+              "code": "import pandas as pd\n\nGRACE_MINUTES = 5\nLATE_THRESHOLD = 3\n\n\ndef _find(input_paths, word):\n    for path in input_paths:\n        if word in path.name.lower():\n            return path\n    raise ValueError(f\"Could not find an input file with '{word}' in its name.\")\n\n\ndef _read(path):\n    if path.suffix.lower() == \".csv\":\n        return pd.read_csv(path, dtype=str)\n    return pd.read_excel(path, dtype=str)\n\n\ndef _minutes(series):\n    # The time clock writes \"-\" for a missing punch; treat anything unparseable as missing.\n    times = pd.to_datetime(series.astype(str).str.strip(), format=\"%H:%M\", errors=\"coerce\")\n    return times.dt.hour * 60 + times.dt.minute\n\n\ndef run(input_paths, output_path):\n    events = _read(_find(input_paths, \"clock\"))\n    roster = _read(_find(input_paths, \"roster\"))\n    events.columns = [c.strip() for c in events.columns]\n    roster.columns = [c.strip() for c in roster.columns]\n\n    events = events.merge(\n        roster[[\"Employee ID\", \"Name\", \"Shift Start\"]], on=\"Employee ID\", how=\"left\"\n    )\n    events[\"in_min\"] = _minutes(events[\"Clock In\"])\n    events[\"out_min\"] = _minutes(events[\"Clock Out\"])\n    events[\"shift_min\"] = _minutes(events[\"Shift Start\"])\n\n    missing_in = events[events[\"in_min\"].isna() & events[\"out_min\"].notna()]\n    swapped = events[events[\"in_min\"].notna() & events[\"out_min\"].notna()]\n    swapped = swapped[swapped[\"out_min\"] < swapped[\"in_min\"]]\n\n    # Swapped rows are data errors and must not count as late arrivals.\n    valid = events[events[\"in_min\"].notna() & ~events.index.isin(swapped.index)]\n    late = valid[valid[\"in_min\"] > valid[\"shift_min\"] + GRACE_MINUTES]\n    late_summary = (\n        late.sort_values(\"Date\")\n        .groupby([\"Employee ID\", \"Name\"])\n        .agg(**{\"Late Days\": (\"Date\", \"count\"), \"Late Dates\": (\"Date\", \", \".join)})\n        .reset_index()\n    )\n    repeated = late_summary[late_summary[\"Late Days\"] >= LATE_THRESHOLD]\n\n    sheets = {\n        \"Missing Clock-In\": missing_in[[\"Employee ID\", \"Name\", \"Date\"]].sort_values(\n            [\"Employee ID\", \"Date\"]\n        ),\n        \"Repeated Late\": repeated.sort_values(\"Employee ID\"),\n        \"Out Before In\": swapped[\n            [\"Employee ID\", \"Name\", \"Date\", \"Clock In\", \"Clock Out\"]\n        ].sort_values([\"Employee ID\", \"Date\"]),\n    }\n    with pd.ExcelWriter(output_path, engine=\"openpyxl\") as writer:\n        for name, frame in sheets.items():\n            frame.to_excel(writer, sheet_name=name, index=False)\n",
+              "notes": "Unparseable times (the '-' placeholder) are now treated as missing."
+            }
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 6100,
+          "output_tokens": 782,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    }
+  ]
+}

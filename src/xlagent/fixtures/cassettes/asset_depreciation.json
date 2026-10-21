@@ -1,0 +1,207 @@
+{
+  "format": "xlagent-cassette/1",
+  "session_key": "9752659f8881a017",
+  "label": "asset_depreciation (non-interactive)",
+  "source": "hand-authored",
+  "model": "claude-opus-5-5",
+  "example": "asset_depreciation",
+  "mode": "noninteractive",
+  "interactions": [
+    {
+      "stage": "interview",
+      "request": {
+        "last_user_message": "<task description + file profile>"
+      },
+      "response": {
+        "id": "msg_replay_depr_01",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-opus-5-5",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "hand-authored-fixture"
+          },
+          {
+            "type": "text",
+            "text": "The policy is fully described. Spec below with my assumptions listed."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_replay_depr_01",
+            "name": "submit_spec",
+            "input": {
+              "spec": {
+                "title": "Fixed asset depreciation schedule 2026",
+                "summary": "Build the monthly straight-line depreciation schedule for 2026 from the asset register, with a yearly total per asset category.",
+                "inputs": [
+                  {
+                    "name_pattern": "asset_register.xlsx",
+                    "description": "Fixed asset register, one row per asset.",
+                    "sheet": "Register",
+                    "key_columns": [
+                      "Asset ID",
+                      "Category",
+                      "Acquisition Date",
+                      "Cost",
+                      "Salvage Value",
+                      "Useful Life (months)",
+                      "Disposal Date"
+                    ]
+                  }
+                ],
+                "steps": [
+                  "Read the asset register.",
+                  "For each asset compute the monthly charge (Cost - Salvage Value) / Useful Life, rounded to cents.",
+                  "For each month of 2026 in which the asset is on the books, compute opening NBV, depreciation and closing NBV.",
+                  "Total the 2026 depreciation per category."
+                ],
+                "output_format": {
+                  "file_type": "xlsx",
+                  "file_name": "depreciation_2026.xlsx",
+                  "sheets": [
+                    {
+                      "name": "Schedule",
+                      "columns": [
+                        "Asset ID",
+                        "Month",
+                        "Opening NBV",
+                        "Depreciation",
+                        "Closing NBV"
+                      ],
+                      "sort_by": [
+                        "Asset ID",
+                        "Month"
+                      ]
+                    },
+                    {
+                      "name": "Category Totals",
+                      "columns": [
+                        "Category",
+                        "Assets",
+                        "Depreciation 2026"
+                      ],
+                      "sort_by": [
+                        "Category"
+                      ]
+                    }
+                  ]
+                },
+                "business_rules": [
+                  "Depreciation starts in the month after the acquisition month.",
+                  "The acquisition month appears with zero depreciation.",
+                  "The final month takes the rounding difference; NBV never goes below salvage value.",
+                  "Disposed assets are depreciated up to and including the disposal month and do not appear afterwards.",
+                  "All amounts are rounded to 2 decimals."
+                ],
+                "edge_cases": [
+                  "Assets fully depreciated before 2026 appear with zero depreciation.",
+                  "Assets acquired during 2026 appear from their acquisition month.",
+                  "Assets acquired after 2026 do not appear."
+                ],
+                "schedule": {
+                  "frequency": "monthly",
+                  "notes": "Re-run after the register is updated."
+                }
+              },
+              "assumptions": [
+                "The schedule covers calendar year 2026 as stated in the task.",
+                "Monthly charges are rounded to cents before accumulating.",
+                "Assets with a blank Disposal Date are still in use."
+              ]
+            }
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 4200,
+          "output_tokens": 619,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    },
+    {
+      "stage": "generate",
+      "request": {
+        "last_user_message": "<confirmed spec + profiles>"
+      },
+      "response": {
+        "id": "msg_replay_depr_02",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-opus-5-5",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "hand-authored-fixture"
+          },
+          {
+            "type": "text",
+            "text": "Here is the depreciation script."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_replay_depr_02",
+            "name": "write_script",
+            "input": {
+              "code": "import pandas as pd\n\nYEAR = 2026\nREQUIRED = [\n    \"Asset ID\",\n    \"Category\",\n    \"Acquisition Date\",\n    \"Cost\",\n    \"Salvage Value\",\n    \"Useful Life (months)\",\n]\n\n\ndef _month_number(timestamp):\n    return timestamp.year * 12 + timestamp.month - 1\n\n\ndef _accumulated(months_done, depreciable, monthly, life):\n    # The last month takes the rounding difference, so after `life` months the\n    # accumulated depreciation is exactly the depreciable amount.\n    if months_done >= life:\n        return depreciable\n    return round(monthly * months_done, 2)\n\n\ndef _asset_rows(asset):\n    cost = float(asset[\"Cost\"])\n    salvage = float(asset[\"Salvage Value\"])\n    life = int(asset[\"Useful Life (months)\"])\n    acquired = _month_number(asset[\"Acquisition Date\"])\n    disposed = asset.get(\"Disposal Date\")\n    disposed = None if pd.isna(disposed) else _month_number(disposed)\n    depreciable = round(cost - salvage, 2)\n    monthly = round(depreciable / life, 2)\n    first_month = acquired  # depreciation runs from the acquisition month\n\n    rows = []\n    for month in range(1, 13):\n        current = YEAR * 12 + month - 1\n        if current < acquired:\n            continue  # not yet on the books\n        if disposed is not None and current > disposed:\n            continue  # disposed: depreciated up to and including the disposal month\n        done_before = max(0, current - first_month)\n        done_after = max(0, current - first_month + 1)\n        opening = round(cost - _accumulated(done_before, depreciable, monthly, life), 2)\n        closing = round(cost - _accumulated(done_after, depreciable, monthly, life), 2)\n        rows.append(\n            {\n                \"Asset ID\": asset[\"Asset ID\"],\n                \"Category\": asset[\"Category\"],\n                \"Month\": f\"{YEAR}-{month:02d}\",\n                \"Opening NBV\": opening,\n                \"Depreciation\": round(opening - closing, 2),\n                \"Closing NBV\": closing,\n            }\n        )\n    return rows\n\n\ndef run(input_paths, output_path):\n    register_path = next((p for p in input_paths if \"register\" in p.name.lower()), None)\n    if register_path is None:\n        raise ValueError(\"Could not find the asset register (a file with 'register' in its name).\")\n    register = pd.read_excel(register_path)\n    register.columns = [str(c).strip() for c in register.columns]\n    missing = [c for c in REQUIRED if c not in register.columns]\n    if missing:\n        raise ValueError(f\"The asset register is missing columns: {missing}\")\n    register = register.dropna(subset=[\"Asset ID\"])\n    for column in (\"Acquisition Date\", \"Disposal Date\"):\n        if column in register.columns:\n            register[column] = pd.to_datetime(register[column])\n\n    rows = []\n    for _, asset in register.iterrows():\n        rows.extend(_asset_rows(asset))\n    schedule = pd.DataFrame(rows).sort_values([\"Asset ID\", \"Month\"]).reset_index(drop=True)\n\n    totals = (\n        schedule.groupby(\"Category\")\n        .agg(Assets=(\"Asset ID\", \"nunique\"), Depreciation=(\"Depreciation\", \"sum\"))\n        .reset_index()\n        .rename(columns={\"Depreciation\": \"Depreciation 2026\"})\n    )\n    totals[\"Depreciation 2026\"] = totals[\"Depreciation 2026\"].round(2)\n\n    with pd.ExcelWriter(output_path, engine=\"openpyxl\") as writer:\n        schedule.drop(columns=\"Category\").to_excel(writer, sheet_name=\"Schedule\", index=False)\n        totals.to_excel(writer, sheet_name=\"Category Totals\", index=False)\n",
+              "notes": "Accumulated depreciation is computed from the month index, so the opening NBV for 2026 does not need a loop over previous years."
+            }
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 4800,
+          "output_tokens": 1062,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    },
+    {
+      "stage": "repair",
+      "request": {
+        "last_user_message": "<diff: Opening NBV 282 of 328 values differ>"
+      },
+      "response": {
+        "id": "msg_replay_depr_03",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-opus-5-5",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "hand-authored-fixture"
+          },
+          {
+            "type": "text",
+            "text": "The diff shows every value one month ahead of the expected schedule: I started depreciating in the acquisition month, but the policy says the month after. Fixed."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_replay_depr_03",
+            "name": "write_script",
+            "input": {
+              "code": "import pandas as pd\n\nYEAR = 2026\nREQUIRED = [\n    \"Asset ID\",\n    \"Category\",\n    \"Acquisition Date\",\n    \"Cost\",\n    \"Salvage Value\",\n    \"Useful Life (months)\",\n]\n\n\ndef _month_number(timestamp):\n    return timestamp.year * 12 + timestamp.month - 1\n\n\ndef _accumulated(months_done, depreciable, monthly, life):\n    # The last month takes the rounding difference, so after `life` months the\n    # accumulated depreciation is exactly the depreciable amount.\n    if months_done >= life:\n        return depreciable\n    return round(monthly * months_done, 2)\n\n\ndef _asset_rows(asset):\n    cost = float(asset[\"Cost\"])\n    salvage = float(asset[\"Salvage Value\"])\n    life = int(asset[\"Useful Life (months)\"])\n    acquired = _month_number(asset[\"Acquisition Date\"])\n    disposed = asset.get(\"Disposal Date\")\n    disposed = None if pd.isna(disposed) else _month_number(disposed)\n    depreciable = round(cost - salvage, 2)\n    monthly = round(depreciable / life, 2)\n    first_month = acquired + 1  # policy: start in the month AFTER acquisition\n\n    rows = []\n    for month in range(1, 13):\n        current = YEAR * 12 + month - 1\n        if current < acquired:\n            continue  # not yet on the books\n        if disposed is not None and current > disposed:\n            continue  # disposed: depreciated up to and including the disposal month\n        done_before = max(0, current - first_month)\n        done_after = max(0, current - first_month + 1)\n        opening = round(cost - _accumulated(done_before, depreciable, monthly, life), 2)\n        closing = round(cost - _accumulated(done_after, depreciable, monthly, life), 2)\n        rows.append(\n            {\n                \"Asset ID\": asset[\"Asset ID\"],\n                \"Category\": asset[\"Category\"],\n                \"Month\": f\"{YEAR}-{month:02d}\",\n                \"Opening NBV\": opening,\n                \"Depreciation\": round(opening - closing, 2),\n                \"Closing NBV\": closing,\n            }\n        )\n    return rows\n\n\ndef run(input_paths, output_path):\n    register_path = next((p for p in input_paths if \"register\" in p.name.lower()), None)\n    if register_path is None:\n        raise ValueError(\"Could not find the asset register (a file with 'register' in its name).\")\n    register = pd.read_excel(register_path)\n    register.columns = [str(c).strip() for c in register.columns]\n    missing = [c for c in REQUIRED if c not in register.columns]\n    if missing:\n        raise ValueError(f\"The asset register is missing columns: {missing}\")\n    register = register.dropna(subset=[\"Asset ID\"])\n    for column in (\"Acquisition Date\", \"Disposal Date\"):\n        if column in register.columns:\n            register[column] = pd.to_datetime(register[column])\n\n    rows = []\n    for _, asset in register.iterrows():\n        rows.extend(_asset_rows(asset))\n    schedule = pd.DataFrame(rows).sort_values([\"Asset ID\", \"Month\"]).reset_index(drop=True)\n\n    totals = (\n        schedule.groupby(\"Category\")\n        .agg(Assets=(\"Asset ID\", \"nunique\"), Depreciation=(\"Depreciation\", \"sum\"))\n        .reset_index()\n        .rename(columns={\"Depreciation\": \"Depreciation 2026\"})\n    )\n    totals[\"Depreciation 2026\"] = totals[\"Depreciation 2026\"].round(2)\n\n    with pd.ExcelWriter(output_path, engine=\"openpyxl\") as writer:\n        schedule.drop(columns=\"Category\").to_excel(writer, sheet_name=\"Schedule\", index=False)\n        totals.to_excel(writer, sheet_name=\"Category Totals\", index=False)\n",
+              "notes": "Depreciation now starts in the month after acquisition."
+            }
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 6400,
+          "output_tokens": 1063,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    }
+  ]
+}
