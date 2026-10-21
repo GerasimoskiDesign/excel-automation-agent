@@ -27,6 +27,18 @@ jobs:
         run: |
           ruff check .
           ruff format --check .
+      - name: Debug xlsx diff (temporary)
+        run: |
+          python -m xlagent examples --out /tmp/regen
+          for f in $(cd examples && find . -name '*.xlsx' | sort); do
+            if ! cmp -s "examples/$f" "/tmp/regen/$f"; then
+              echo "DIFF $f"
+              mkdir -p /tmp/a /tmp/b && rm -rf /tmp/a/* /tmp/b/*
+              (cd /tmp/a && unzip -q -o "$GITHUB_WORKSPACE/examples/$f")
+              (cd /tmp/b && unzip -q -o "/tmp/regen/$f")
+              diff -r /tmp/a /tmp/b | head -c 1500 || true
+            fi
+          done
       - name: Pytest
         run: pytest
       - name: Eval (replay mode, no API key)
