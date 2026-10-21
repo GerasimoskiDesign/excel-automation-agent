@@ -1,0 +1,41 @@
+[
+  {
+    "example": "sales_consolidation",
+    "passed": true,
+    "status": "done",
+    "attempts": 2,
+    "outcomes": [
+      "safety_rejected",
+      "passed"
+    ],
+    "cells_compared": 61,
+    "assumptions": 3,
+    "error": null
+  },
+  {
+    "example": "asset_depreciation",
+    "passed": true,
+    "status": "done",
+    "attempts": 2,
+    "outcomes": [
+      "mismatch",
+      "passed"
+    ],
+    "cells_compared": 1655,
+    "assumptions": 3,
+    "error": null
+  },
+  {
+    "example": "attendance_exceptions",
+    "passed": true,
+    "status": "done",
+    "attempts": 2,
+    "outcomes": [
+      "crashed",
+      "passed"
+    ],
+    "cells_compared": 74,
+    "assumptions": 3,
+    "error": null
+  }
+]
