@@ -4,8 +4,8 @@ Why a helper module: openpyxl stamps the current time into every .xlsx it saves
 (zip entry dates and docProps/core.xml). That makes "re-running produces
 identical outputs" impossible unless we normalise those timestamps, so all
 files this repo generates go through :func:`write_xlsx`. Entries are stored
-uncompressed because deflate output differs between zlib builds (Windows vs
-Linux CI), which would make the bytes platform-dependent.
+uncompressed and with a fixed "created on" system, because deflate output and
+the zip header default differ between Windows and Linux.
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ def normalize_xlsx(path: Path) -> None:
             new_info = zipfile.ZipInfo(info.filename, date_time=FIXED_ZIP_DATE)
             new_info.compress_type = zipfile.ZIP_STORED
             new_info.external_attr = 0o644 << 16
+            new_info.create_system = 3  # ZipInfo defaults to 0 on Windows, 3 elsewhere
             zout.writestr(new_info, data)
     Path(path).write_bytes(out.getvalue())
 

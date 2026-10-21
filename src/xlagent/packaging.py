@@ -158,6 +158,7 @@ def build_zip(
             info = zipfile.ZipInfo(name, date_time=FIXED_ZIP_DATE)
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o644 << 16
+            info.create_system = 3  # same bytes on Windows and Linux
             zf.writestr(info, files[name].encode("utf-8"))
     data = buffer.getvalue()
     if dest is not None:
