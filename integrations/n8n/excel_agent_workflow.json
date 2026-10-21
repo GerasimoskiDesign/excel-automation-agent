@@ -1,0 +1,293 @@
+{
+  "id": "xlAgentEmail0001",
+  "name": "Excel automation agent (email in, tool out)",
+  "nodes": [
+    {
+      "parameters": {
+        "mailbox": "INBOX",
+        "postProcessAction": "read",
+        "downloadAttachments": true,
+        "dataPropertyAttachmentsPrefixName": "attachment_",
+        "options": {
+          "customEmailConfig": "[\"UNSEEN\", [\"SUBJECT\", \"excel task\"]]"
+        }
+      },
+      "id": "5f0c2a41-1d3e-4c7a-9b51-0a6f3c1e2d01",
+      "name": "Email with Excel task",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "credentials": {
+        "imap": {
+          "id": "replace-me",
+          "name": "IMAP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turn the email into the JSON body for POST /jobs/json.\n// Attachments named expected_*.xlsx are treated as the expected-output example.\nconst out = [];\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const files = [];\n  let expected = null;\n  for (const [key, meta] of Object.entries(item.binary ?? {})) {\n    const name = meta.fileName ?? key;\n    if (!/\\.(xlsx|csv)$/i.test(name)) continue;\n    const buffer = await this.helpers.getBinaryDataBuffer(i, key);\n    const file = { name, content_base64: buffer.toString('base64') };\n    if (/^expected[_-]/i.test(name)) expected = file; else files.push(file);\n  }\n  out.push({\n    json: {\n      reply_to: item.json.from,\n      subject: item.json.subject ?? 'Excel task',\n      file_count: files.length,\n      payload: {\n        task: (item.json.textPlain ?? item.json.text ?? '').trim(),\n        files,\n        expected,\n      },\n    },\n  });\n}\nreturn out;"
+      },
+      "id": "5f0c2a41-1d3e-4c7a-9b51-0a6f3c1e2d02",
+      "name": "Build job payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.file_count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5f0c2a41-1d3e-4c7a-9b51-0a6f3c1e2d03",
+      "name": "Has spreadsheet?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/jobs/json",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "id": "5f0c2a41-1d3e-4c7a-9b51-0a6f3c1e2d04",
+      "name": "Create job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 200]
+    },
+    {
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      },
+      "id": "5f0c2a41-1d3e-4c7a-9b51-0a6f3c1e2d05",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [880, 200],
+      "webhookId": "0c9a3a0e-6f7b-4f61-8f0e-3e2f1b7c9d10"
+    },
+    {
+      "parameters": {
+        "url": "=http://api:8000/jobs/{{ $('Create job').item.json.id }}",
+        "options": {}
+      },
+      "id": "5f0c2a41-1d3e-4c7a-9b51-0a6f3c1e2d06",
+      "name": "Get job status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "done",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5f0c2a41-1d3e-4c7a-9b51-0a6f3c1e2d07",
+      "name": "Done?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1320, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c3",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "failed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5f0c2a41-1d3e-4c7a-9b51-0a6f3c1e2d08",
+      "name": "Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1540, 320]
+    },
+    {
+      "parameters": {
+        "url": "=http://api:8000/jobs/{{ $json.id }}/download",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "deliverable"
+            }
+          }
+        }
+      },
+      "id": "5f0c2a41-1d3e-4c7a-9b51-0a6f3c1e2d09",
+      "name": "Download tool zip",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 100]
+    },
+    {
+      "parameters": {
+        "fromEmail": "excel-agent@example.com",
+        "toEmail": "={{ $('Build job payload').item.json.reply_to }}",
+        "subject": "=Your Excel tool is ready: {{ $('Build job payload').item.json.subject }}",
+        "emailFormat": "text",
+        "text": "=Hi,\n\nyour tool is attached as a zip. Unzip it and double-click run.bat.\n\nThe agent could not ask you questions, so it made these assumptions - please check them:\n{{ $('Get job status').item.json.assumptions.map(a => '- ' + a).join('\\n') }}\n\nIt took {{ $('Get job status').item.json.attempts.length }} attempt(s) to pass the automatic checks.\nIf an assumption is wrong, reply with the correction and the files again.",
+        "options": {
+          "attachments": "deliverable"
+        }
+      },
+      "id": "5f0c2a41-1d3e-4c7a-9b51-0a6f3c1e2d10",
+      "name": "Email the tool back",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1760, 100],
+      "credentials": {
+        "smtp": {
+          "id": "replace-me",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "excel-agent@example.com",
+        "toEmail": "={{ $('Build job payload').item.json.reply_to }}",
+        "subject": "=Could not automate: {{ $('Build job payload').item.json.subject }}",
+        "emailFormat": "text",
+        "text": "=Hi,\n\nthe agent could not build a working tool from your files:\n{{ $json.error }}\n\nA person will look at your request.",
+        "options": {}
+      },
+      "id": "5f0c2a41-1d3e-4c7a-9b51-0a6f3c1e2d11",
+      "name": "Email the failure",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1760, 320],
+      "credentials": {
+        "smtp": {
+          "id": "replace-me",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "excel-agent@example.com",
+        "toEmail": "={{ $json.reply_to }}",
+        "subject": "=Missing attachment: {{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "Hi,\n\nplease attach your sample Excel/CSV files (and optionally an example of the result named expected_<something>.xlsx) and describe the task in the email body.",
+        "options": {}
+      },
+      "id": "5f0c2a41-1d3e-4c7a-9b51-0a6f3c1e2d12",
+      "name": "Ask for attachments",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [660, 420],
+      "credentials": {
+        "smtp": {
+          "id": "replace-me",
+          "name": "SMTP account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Email with Excel task": {
+      "main": [[{ "node": "Build job payload", "type": "main", "index": 0 }]]
+    },
+    "Build job payload": {
+      "main": [[{ "node": "Has spreadsheet?", "type": "main", "index": 0 }]]
+    },
+    "Has spreadsheet?": {
+      "main": [
+        [{ "node": "Create job", "type": "main", "index": 0 }],
+        [{ "node": "Ask for attachments", "type": "main", "index": 0 }]
+      ]
+    },
+    "Create job": {
+      "main": [[{ "node": "Wait", "type": "main", "index": 0 }]]
+    },
+    "Wait": {
+      "main": [[{ "node": "Get job status", "type": "main", "index": 0 }]]
+    },
+    "Get job status": {
+      "main": [[{ "node": "Done?", "type": "main", "index": 0 }]]
+    },
+    "Done?": {
+      "main": [
+        [{ "node": "Download tool zip", "type": "main", "index": 0 }],
+        [{ "node": "Failed?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Failed?": {
+      "main": [
+        [{ "node": "Email the failure", "type": "main", "index": 0 }],
+        [{ "node": "Wait", "type": "main", "index": 0 }]
+      ]
+    },
+    "Download tool zip": {
+      "main": [[{ "node": "Email the tool back", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

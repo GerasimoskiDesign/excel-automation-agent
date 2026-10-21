@@ -1,0 +1,35 @@
+# n8n + the xlagent API on one Docker network.
+#   docker compose up -d --build
+#   docker compose exec n8n n8n import:workflow --input=/workflows/excel_agent_workflow.json
+# n8n editor: http://localhost:5678   API docs: http://localhost:8000/docs
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    environment:
+      XLAGENT_REPLAY: ${XLAGENT_REPLAY:-1}
+      XLAGENT_MODEL: ${XLAGENT_MODEL:-claude-opus-5-5}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      XLAGENT_WORK_DIR: /data/jobs
+    volumes:
+      - xlagent_jobs:/data/jobs
+    ports:
+      - "8000:8000"
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.44.5
+    environment:
+      GENERIC_TIMEZONE: Europe/Berlin
+      N8N_SECURE_COOKIE: "false"
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./excel_agent_workflow.json:/workflows/excel_agent_workflow.json:ro
+    depends_on:
+      - api
+
+volumes:
+  xlagent_jobs:
+  n8n_data:
