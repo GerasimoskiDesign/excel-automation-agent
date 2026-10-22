@@ -144,7 +144,7 @@ The Streamlit flow (demo example in replay mode):
 
 ## Production context
 
-> _Production context: TODO(Mario) — what the real version did and its outcomes, using only publicly shareable facts._
+Prototype; not yet deployed in production.
 
 ## Quickstart
 
